@@ -6,107 +6,109 @@ from streamlit_autorefresh import st_autorefresh
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-# --- 1. SETUP ---
+# --- 1. SETUP & THEME ---
 try:
     nltk.data.find('vader_lexicon')
-except LookupError:
+except:
     nltk.download('vader_lexicon')
 
 sia = SentimentIntensityAnalyzer()
-st.set_page_config(layout="wide", page_title="Apex Quant PRO", page_icon="🛡️")
-st_autorefresh(interval=60 * 1000, key="terminal_heartbeat")
+st.set_page_config(layout="wide", page_title="Apex Golden Terminal")
+st_autorefresh(interval=60 * 1000, key="momentum_sync")
 
-# Clean White Theme
+# Professional Clean White Styling
 st.markdown("""
     <style>
-    .stApp { background-color: #ffffff; color: #1a1d23; }
-    [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #dee2e6; }
-    .signal-card { padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; color: white; font-weight: bold; }
+    .stApp { background-color: #ffffff; }
+    [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #dee2e6; min-width: 350px; }
+    .momentum-bar { height: 20px; border-radius: 10px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ddd; }
+    .gold-glow { box-shadow: 0 0 10px #ffd700; border: 2px solid #ffd700 !important; }
+    h1, h2, h3 { color: #004a99 !important; font-family: 'Inter', sans-serif; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE SENTIMENT ENGINE (Fixed KeyError) ---
-def analyze_market_mind(ticker_obj):
+# --- 2. MOMENTUM ENGINE ---
+def get_momentum_score(ticker):
     try:
-        news_data = ticker_obj.news
-        if not news_data: return 0, []
-        processed_news = []
-        scores = []
-        for item in news_data:
-            # Flexible key checking for 'title' or 'headline'
-            title = item.get('title') or item.get('headline') or "No Title"
-            s_score = sia.polarity_scores(title)['compound']
-            scores.append(s_score)
-            processed_news.append({'title': title, 'score': s_score, 'link': item.get('link', '#')})
-        avg_score = sum(scores) / len(scores)
-        return avg_score, processed_news
-    except: return 0, []
+        tk = yf.Ticker(ticker)
+        df = tk.history(period="5d", interval="1d")
+        if df.empty: return 0, "Red"
+        
+        # Technicals
+        price = df.iloc[-1]['Close']
+        ema9 = df['Close'].ewm(span=9, adjust=False).mean().iloc[-1]
+        vol_avg = df['Volume'].mean()
+        rvol = df.iloc[-1]['Volume'] / vol_avg
+        
+        # Sentiment
+        news = tk.news[:5]
+        s_score = sum([sia.polarity_scores(n.get('title', ''))['compound'] for n in news]) / 5 if news else 0
+        
+        # Scoring Logic
+        score = 0
+        if price > ema9: score += 40
+        if rvol > 1.5: score += 30
+        if s_score > 0.1: score += 30
+        
+        color = "#dc3545" # Red
+        if 40 <= score < 80: color = "#28a745" # Green
+        if score >= 90: color = "#ffd700" # Gold
+        
+        return score, color
+    except:
+        return 0, "#dc3545"
 
-# --- 3. THE SCANNER ---
-@st.cache_data(ttl=300)
-def run_scan():
-    watchlist = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "TPST"]
-    results = []
-    for t in watchlist:
-        try:
-            p = yf.Ticker(t).history(period="1d")['Close'].iloc[-1]
-            if 2.0 <= p <= 20.0: results.append(t)
-        except: continue
-    return results
-
-# --- 4. SIDEBAR ---
+# --- 3. SIDEBAR: MOMENTUM BARS ---
 with st.sidebar:
-    st.header("🔍 Pre-Market Scan")
-    tickers = run_scan()
-    active_ticker = st.selectbox("Switch Terminal", tickers if tickers else ["SOUN"])
+    st.header("⚡ Momentum Scan")
+    st.caption("$2 - $20 High-Velocity Targets")
+    
+    watchlist = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "TPST"]
+    selected_ticker = st.radio("Select Active Terminal", watchlist, horizontal=False)
     
     st.divider()
-    st.subheader("🧠 Institutional Mood")
-    tk_obj = yf.Ticker(active_ticker)
-    mood_score, news_items = analyze_market_mind(tk_obj)
-    
-    mood_color = "#28a745" if mood_score > 0.1 else "#dc3545" if mood_score < -0.1 else "#6c757d"
-    st.markdown(f'<div style="background:{mood_color}; color:white; padding:15px; border-radius:8px; text-align:center;">'
-                f'<h2 style="color:white !important; margin:0;">{mood_score:+.2f}</h2>Score</div>', unsafe_allow_html=True)
-    
-    for n in news_items[:5]:
-        icon = "🟢" if n['score'] > 0 else "🔴" if n['score'] < 0 else "⚪"
-        st.markdown(f"{icon} [{n['title']}]({n['link']})")
+    for t in watchlist:
+        m_score, m_color = get_momentum_score(t)
+        is_gold = "gold-glow" if m_color == "#ffd700" else ""
+        st.markdown(f"**{t}**")
+        st.markdown(f"""
+            <div class="momentum-bar {is_gold}" style="background: linear-gradient(90deg, {m_color} {m_score}%, #eee {m_score}%);"></div>
+        """, unsafe_allow_html=True)
 
-# --- 5. MAIN TERMINAL ---
-df = yf.download(active_ticker, period="60d", interval="1d", progress=False)
-if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+# --- 4. MAIN TERMINAL: COMPACT VIEW ---
+st.title(f"🛡️ {selected_ticker} Command")
+
+df = yf.download(selected_ticker, period="60d", interval="1d", progress=False)
 df.columns = [str(c).lower() for c in df.columns]
 df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
-df['vol_avg'] = df['volume'].rolling(20).mean()
-df['rvol'] = df['volume'] / df['vol_avg']
 
+# Metrics Row
+c1, c2, c3, c4 = st.columns(4)
 last = df.iloc[-1]
-st.title(f"🛡️ {active_ticker} Strategic Command")
-
-# THE SIGNAL ENGINE
-is_bullish = (last['close'] > last['ema9']) and (mood_score > 0.05)
-is_bearish = (last['close'] < last['ema9']) and (mood_score < -0.05)
-
-if is_bullish:
-    st.markdown('<div class="signal-card" style="background:#28a745;">🚀 STRATEGIC ALIGNMENT: BULLISH SIGNAL</div>', unsafe_allow_html=True)
-elif is_bearish:
-    st.markdown('<div class="signal-card" style="background:#dc3545;">⚠️ STRATEGIC ALIGNMENT: BEARISH SIGNAL</div>', unsafe_allow_html=True)
-else:
-    st.markdown('<div class="signal-card" style="background:#6c757d;">⚖️ MONITORING: NO CLEAR ALIGNMENT</div>', unsafe_allow_html=True)
-
-# Main Stats
-c1, c2, c3 = st.columns(3)
 c1.metric("Price", f"${last['close']:.2f}")
-c2.metric("RVOL", f"{last['rvol']:.2f}x")
-c3.metric("EMA 9 Gap", f"${(last['close'] - last['ema9']):.2f}")
+c2.metric("EMA 9", f"${last['ema9']:.2f}")
+c3.metric("RVOL", f"{(last['volume']/df['volume'].mean()):.1f}x")
+c4.write("### ✅ PRO SIGNAL" if last['close'] > last['ema9'] else "### ⏳ MONITORING")
 
-# Chart
-fig, ax = plt.subplots(figsize=(12, 5))
-ax.plot(df.index, df['close'], color='#0066cc', label='Price Action', linewidth=2)
-ax.plot(df.index, df['ema9'], color='#28a745', label='EMA 9', linestyle='--')
+# COMPACT CHART (Reduced Size)
+fig, ax = plt.subplots(figsize=(10, 3)) # Shorter height
+ax.plot(df.index, df['close'], color='#0066cc', linewidth=2, label="Price")
+ax.plot(df.index, df['ema9'], color='#28a745', linestyle='--', label="EMA 9")
 ax.set_facecolor('white')
 fig.patch.set_facecolor('white')
 ax.grid(color='#f1f3f5')
-ax.legend()
+ax.tick_params(axis='both', which='major', labelsize=8)
 st.pyplot(fig)
+
+# News & Log below
+st.divider()
+col_left, col_right = st.columns(2)
+with col_left:
+    st.subheader("📰 Intelligence")
+    for n in yf.Ticker(selected_ticker).news[:3]:
+        st.caption(f"**{n.get('title')}**")
+with col_right:
+    st.subheader("🖋️ Trade Log")
+    note = st.text_input("Quick Note")
+    if st.button("Save Log"):
+        st.success("Noted.")
