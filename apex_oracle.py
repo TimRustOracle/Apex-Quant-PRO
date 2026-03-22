@@ -6,31 +6,31 @@ from streamlit_autorefresh import st_autorefresh
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-# --- 1. SETUP ---
+# --- 1. CORE BRAIN ---
 try:
     nltk.data.find('vader_lexicon')
 except:
     nltk.download('vader_lexicon')
 
 sia = SentimentIntensityAnalyzer()
-st.set_page_config(layout="wide", page_title="Apex Golden Terminal", page_icon="🛡️")
+st.set_page_config(layout="wide", page_title="Apex Golden Suite", page_icon="🛡️")
 st_autorefresh(interval=60 * 1000, key="momentum_sync")
 
-# Professional White Aesthetic & Sidebar Momentum Styling
+# Strategic White Theme & Gold Glow CSS
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1a1d23; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #dee2e6; min-width: 320px; }
-    .momentum-container { margin-bottom: 12px; }
+    .momentum-container { margin-bottom: 15px; }
     .bar-bg { background: #eee; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 4px; }
-    .bar-fill { height: 100%; transition: width 0.8s ease-in-out; }
+    .bar-fill { height: 100%; transition: width 0.8s ease; }
     .gold-glow { box-shadow: 0 0 15px #ffd700; border: 1.5px solid #ffd700 !important; }
-    h1, h2, h3 { color: #004a99 !important; font-family: 'Inter', sans-serif; }
+    .metric-box { border: 1px solid #eee; padding: 10px; border-radius: 8px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINE: MOMENTUM & DATA ---
-def get_clean_data(ticker):
+# --- 2. THE ENGINE ---
+def get_market_data(ticker):
     try:
         df = yf.download(ticker, period="60d", interval="1d", progress=False)
         if df.empty: return None
@@ -39,11 +39,11 @@ def get_clean_data(ticker):
         return df
     except: return None
 
-def get_score_and_color(ticker):
-    df = get_clean_data(ticker)
+def get_apex_score(ticker):
+    df = get_market_data(ticker)
     if df is None: return 0, "#dc3545"
     
-    # Logic Parameters
+    # Master Suite Logic
     last = df.iloc[-1]
     ema9 = df['close'].ewm(span=9, adjust=False).mean().iloc[-1]
     rvol = last['volume'] / df['volume'].mean()
@@ -62,20 +62,20 @@ def get_score_and_color(ticker):
     if score >= 90: color = "#ffd700" # Gold
     return score, color
 
-# --- 3. SIDEBAR: MOMENTUM BARS ---
+# --- 3. SIDEBAR: GOLDEN MOMENTUM SLIDERS ---
 with st.sidebar:
     st.header("⚡ Momentum Scan")
     watchlist = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "TPST"]
-    selected_ticker = st.radio("Active Terminal", watchlist)
+    selected_ticker = st.radio("Switch View", watchlist)
     
     st.divider()
     for t in watchlist:
-        val, col = get_score_and_color(t)
-        glow = "gold-glow" if col == "#ffd700" else ""
+        val, col = get_apex_score(t)
+        glow_style = "gold-glow" if col == "#ffd700" else ""
         st.markdown(f"""
             <div class="momentum-container">
                 <div style="font-size:0.8rem; font-weight:bold;">{t} <span style="float:right;">{val}%</span></div>
-                <div class="bar-bg {glow}">
+                <div class="bar-bg {glow_style}">
                     <div class="bar-fill" style="width: {val}%; background-color: {col};"></div>
                 </div>
             </div>
@@ -83,35 +83,34 @@ with st.sidebar:
 
 # --- 4. MAIN TERMINAL: COMPACT VIEW ---
 st.title(f"🛡️ {selected_ticker} Command")
-data = get_clean_data(selected_ticker)
+data = get_market_data(selected_ticker)
 
 if data is not None:
     data['ema9'] = data['close'].ewm(span=9, adjust=False).mean()
     last = data.iloc[-1]
     
-    # Quick Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Price", f"${last['close']:.2f}")
-    c2.metric("9-Day EMA", f"${last['ema9']:.2f}")
-    c3.metric("RVOL", f"{(last['volume']/data['volume'].mean()):.1f}x")
+    # Top Stats
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Price", f"${last['close']:.2f}")
+    m2.metric("9-Day EMA", f"${last['ema9']:.2f}")
+    m3.metric("RVOL", f"{(last['volume']/data['volume'].mean()):.1f}x")
 
-    # THE COMPACT CHART
-    fig, ax = plt.subplots(figsize=(10, 3))
-    ax.plot(data.index, data['close'], color='#0066cc', label='Price Action', linewidth=1.8)
+    # COMPACT CHART
+    fig, ax = plt.subplots(figsize=(10, 3)) 
+    ax.plot(data.index, data['close'], color='#0066cc', label='Price Action', linewidth=1.5)
     ax.plot(data.index, data['ema9'], color='#28a745', label='EMA 9 (Trend)', linestyle='--')
     ax.set_facecolor('white')
     fig.patch.set_facecolor('white')
     ax.grid(color='#f1f3f5', linewidth=0.5)
-    ax.legend(prop={'size': 8}, loc='upper right')
-    ax.tick_params(labelsize=8)
+    ax.legend(prop={'size': 7}, loc='upper right')
+    ax.tick_params(labelsize=7)
     st.pyplot(fig)
 
-    # SECURE AI NEWS
-    st.subheader("📰 AI Intel Feed")
+    # REFINED AI INTEL
+    st.subheader("📰 AI Intelligence")
     raw_news = yf.Ticker(selected_ticker).news[:3]
     for n in raw_news:
-        # Improved fallbacks for missing titles
-        h_text = n.get('title') or n.get('headline') or f"New Update for {selected_ticker}"
-        with st.expander(f"🔹 {h_text[:75]}..."):
-            st.write(f"**Full Headline:** {h_text}")
-            st.caption(f"Source: {n.get('publisher', 'Financial Network')} | [Link]({n.get('link', '#')})")
+        h_text = n.get('title') or n.get('headline') or f"Intelligence for {selected_ticker}"
+        with st.expander(f"🔹 {h_text[:80]}..."):
+            st.write(h_text)
+            st.caption(f"[Source: {n.get('publisher', 'Financial Feed')}]({n.get('link', '#')})")
