@@ -4,34 +4,37 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. CORE SETUP ---
-st.set_page_config(layout="wide", page_title="Apex Risk Shield", page_icon="🛡️")
+# --- 1. CORE BRAIN ---
+st.set_page_config(layout="wide", page_title="Apex Command Final", page_icon="🛡️")
 st_autorefresh(interval=60 * 1000, key="momentum_sync")
 
-if "selected_ticker" not in st.session_state:
+# Self-Healing Selection Logic
+if "selected_ticker" not in st.session_state or st.session_state.selected_ticker is None:
     st.session_state.selected_ticker = "SOUN"
 
-# Unified UI Styling
+# Unified "Pro" Styling
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1a1d23; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; border-right: 1px solid #dee2e6; min-width: 300px; }
-    .risk-box { background: #fffbe6; padding: 15px; border-radius: 10px; border: 1.5px solid #ffe58f; margin-top: 10px; }
-    .prob-meter { background: #f0f7ff; padding: 15px; border-radius: 10px; border-left: 5px solid #004a99; }
+    .risk-box { background: #fffbe6; padding: 12px; border-radius: 8px; border: 1.5px solid #ffe58f; }
+    .prob-meter { background: #f0f7ff; padding: 12px; border-radius: 8px; border-left: 5px solid #004a99; border: 1px solid #d1e9ff; }
+    .news-ticker { background: #1a1d23; color: #00ff00; padding: 10px; border-radius: 5px; font-family: 'Courier New', Courier, monospace; overflow: hidden; white-space: nowrap; }
     div.stButton > button { width: 100%; border-radius: 4px; height: 45px; font-weight: bold; font-size: 0.75rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
+# --- 2. THE ENGINE ---
 @st.cache_data(ttl=300)
-def get_apex_data(ticker):
+def get_clean_metrics(ticker):
     try:
-        df = yf.download(ticker, period="60d", interval="1d", progress=False)
+        t_obj = yf.Ticker(ticker)
+        df = t_obj.history(period="60d", interval="1d")
         if df.empty: return None
         last = df.iloc[-1]; prev = df.iloc[-2]
         ema9 = df['Close'].ewm(span=9, adjust=False).mean().iloc[-1]
         change = ((last['Close'] - prev['Close']) / prev['Close']) * 100
-        # Simple Apex Scoring
+        # Bullish Score Calculation
         score = 0
         if last['Close'] > ema9: score += 50
         if last['Volume'] > df['Volume'].mean(): score += 50
@@ -39,16 +42,17 @@ def get_apex_data(ticker):
         return {"score": score, "color": color, "change": change, "price": last['Close'], "ema9": ema9}
     except: return None
 
-# --- 3. DYNAMIC NAVIGATION ---
+# --- 3. DYNAMIC SYNC & SORT ---
 watchlist = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "TPST"]
 processed = []
 for t in watchlist:
-    data = get_apex_data(t)
+    data = get_clean_metrics(t)
     if data: processed.append({"ticker": t, **data})
 
 sorted_list = sorted(processed, key=lambda x: (x['score'], x['change']), reverse=True)
 bullish_count = sum(1 for x in sorted_list if x['score'] >= 50)
 
+# Sidebar with "Auto-Switch"
 with st.sidebar:
     st.header("⚡ Hottest Momentum")
     ticker_names = [x['ticker'] for x in sorted_list]
@@ -58,53 +62,49 @@ with st.sidebar:
         st.session_state.selected_ticker = choice
         st.rerun()
 
-# --- 4. MAIN COMMAND CENTER ---
+# --- 4. THE COMMAND TERMINAL ---
 cur = st.session_state.selected_ticker
-st.title(f"🛡️ {cur} Apex Terminal")
-cur_data = next((x for x in sorted_list if x['ticker'] == cur), None)
+cur_metrics = next((x for x in sorted_list if x['ticker'] == cur), None)
 
-if cur_data:
-    # CHART SECTION
-    df_plot = yf.download(cur, period="60d", progress=False)
+if cur_metrics:
+    st.title(f"🛡️ {cur} Strategic Command")
+    
+    # 60-Day Tech Chart
+    df_chart = yf.download(cur, period="60d", progress=False)
     fig, ax = plt.subplots(figsize=(10, 2.2))
-    ax.plot(df_plot.index, df_plot['Close'], color='#0066cc', linewidth=1.5)
+    ax.plot(df_chart.index, df_chart['Close'], color='#0066cc', linewidth=1.5)
     ax.set_facecolor('white'); fig.patch.set_facecolor('white')
     st.pyplot(fig)
 
-    # RISK & PROBABILITY ROW
+    # RISK SHIELD & PROBABILITY
     risk_col, prob_col = st.columns([2, 1])
-    
     with risk_col:
-        # RISK SHIELD CALCULATIONS
-        entry = cur_data['price']
-        stop_price = entry * 0.98 # 2% Stop Loss rule
-        risk_per_share = entry - stop_price
-        shares_to_buy = 100 / risk_per_share # Fixed $100 Risk
-        
+        price = cur_metrics['price']
+        stop = price * 0.98  # 2% Risk Rule
+        shares = 100 / (price - stop)
         st.markdown(f"""
             <div class="risk-box">
-                <span style="color:#856404; font-weight:bold; font-size:0.8rem;">🛡️ RISK SHIELD (Fixed $100 Risk)</span><br>
-                <div style="display:flex; justify-content:space-between; margin-top:5px;">
-                    <div><b>Buy Size:</b> {int(shares_to_buy)} Shares</div>
-                    <div><b>Stop Loss:</b> ${stop_price:.2f}</div>
-                    <div><b>Total Capital:</b> ${(shares_to_buy * entry):.2f}</div>
-                </div>
+                <span style="font-size:0.75rem; font-weight:bold; color:#856404;">🛡️ RISK SHIELD (Max $100 Loss)</span><br>
+                <b>Buy:</b> {int(shares)} Shares @ ${price:.2f} | <b>Stop:</b> ${stop:.2f} | <b>Total:</b> ${(shares*price):.2f}
             </div>
         """, unsafe_allow_html=True)
 
     with prob_col:
         p_val = (bullish_count / len(watchlist)) * 100
-        st.markdown(f"""
-            <div class="prob-meter">
-                <div style="font-size:0.65rem; font-weight:bold; color:#004a99;">PROBABILITY</div>
-                <div style="font-size:1.6rem; font-weight:900;">{p_val:.0f}%</div>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="prob-meter"><div style="font-size:0.65rem; font-weight:bold;">PROBABILITY</div><div style="font-size:1.5rem; font-weight:900;">{p_val:.0f}%</div></div>""", unsafe_allow_html=True)
 
     # CLICKABLE HEAT MAP
-    st.caption("Market Heat Map (Sorted Hottest to Coldest)")
+    st.caption("Market Momentum Map (Click Stock to Sync)")
     h_cols = st.columns(len(sorted_list))
     for i, item in enumerate(sorted_list):
-        if h_cols[i].button(f"{item['ticker']}\n{item['change']:+.1f}%", key=f"h_{item['ticker']}"):
+        if h_cols[i].button(f"{item['ticker']}\n{item['change']:+.1f}%", key=f"heat_{item['ticker']}"):
             st.session_state.selected_ticker = item['ticker']
             st.rerun()
+
+    # Pinned Intelligence Feed
+    st.divider()
+    try:
+        news = yf.Ticker(cur).news[0]
+        st.markdown(f"""<div class="news-ticker">>> LATEST INTEL: {news['title']} -- SOURCE: {news['publisher']}</div>""", unsafe_allow_html=True)
+    except:
+        st.caption("Awaiting fresh market intelligence...")
