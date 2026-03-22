@@ -103,10 +103,4 @@ if data is not None:
     fig.patch.set_facecolor('#ffffff')
     ax.grid(color='#f1f3f5', linestyle='-', linewidth=0.5)
     ax.legend()
-    st.pyplot(fig)    ax.spines['bottom'].set_color('#dee2e6')
-    ax.spines['left'].set_color('#dee2e6')
-    ax.grid(color='#f1f3f5', linestyle='-', linewidth=0.5)
-    ax.tick_params(colors='#495057')
-    ax.legend(facecolor='white', edgecolor='#dee2e6', labelcolor='black')
-    
     st.pyplot(fig)
