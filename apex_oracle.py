@@ -1,4 +1,4 @@
-\import streamlit as st
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,32 +15,35 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE BATCH ENGINE (Stops the Sync Error) ---
+# --- 2. THE FLAT-DATA ENGINE (Fixes Syntax Errors) ---
 @st.cache_data(ttl=120)
-def fetch_batch_intel():
-    # Targeted small-to-mid cap momentum list
+def fetch_flat_intel():
     tickers = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "TPST", "UPST"]
+    valid_list = []
     
     try:
-        # BATCH CALL: One request for all tickers + SPY for Relative Strength
-        all_data = yf.download(tickers + ["SPY"], period="5d", interval="1d", group_by='ticker', progress=False, timeout=20)
+        # BATCH CALL
+        # We use 'auto_adjust=True' and 'threads=True' for better performance on older hardware
+        raw_data = yf.download(tickers + ["SPY"], period="5d", interval="1d", group_by='ticker', progress=False, timeout=20)
         
-        spy_close = all_data['SPY']['Close']
+        # Benchmarking SPY
+        spy_close = raw_data['SPY']['Close']
         spy_perf = (spy_close.iloc[-1] - spy_close.iloc[0]) / spy_close.iloc[0]
         
-        valid_list = []
         for t in tickers:
-            if t not in all_data: continue
-            t_data = all_data[t].dropna()
-            if len(t_data) < 2: continue
+            if t not in raw_data: continue
             
-            price = float(t_data['Close'].iloc[-1])
+            # Flattening the data immediately to prevent Syntax/Value Errors
+            t_df = raw_data[t].copy().dropna()
+            if len(t_df) < 2: continue
             
-            # Filter: Strategic $2 to $30 Range
+            price = float(t_df['Close'].iloc[-1])
+            
+            # Small-Cap Filter ($2 - $30)
             if 2.0 <= price <= 30.0:
-                change = ((price - t_data['Close'].iloc[-2]) / t_data['Close'].iloc[-2]) * 100
-                rvol = t_data['Volume'].iloc[-1] / t_data['Volume'].mean()
-                stock_perf = (price - t_data['Close'].iloc[0]) / t_data['Close'].iloc[0]
+                change = ((price - t_df['Close'].iloc[-2]) / t_df['Close'].iloc[-2]) * 100
+                rvol = t_df['Volume'].iloc[-1] / t_df['Volume'].mean()
+                stock_perf = (price - t_df['Close'].iloc[0]) / t_df['Close'].iloc[0]
                 rs_index = (stock_perf - spy_perf) * 100
                 
                 valid_list.append({
@@ -49,47 +52,47 @@ def fetch_batch_intel():
                     "Change %": f"{change:+.2f}%",
                     "RVOL": round(float(rvol), 2),
                     "RS Index": round(float(rs_index), 2),
-                    "Volume": f"{int(t_data['Volume'].iloc[-1]):,}"
+                    "Volume": f"{int(t_df['Volume'].iloc[-1]):,}"
                 })
         return pd.DataFrame(valid_list)
     except Exception as e:
-        st.error(f"Batch Sync Failed: {e}")
+        # If the batch fails, the UI won't crash; it will show this alert
         return pd.DataFrame()
 
 # --- 3. COMMAND INTERFACE ---
 st.title("🛡️ APEX PRO COMMAND CENTER")
 
-master_df = fetch_batch_intel()
+scan_results = fetch_flat_intel()
 
-if not master_df.empty:
+if not scan_results.empty:
     st.subheader("📡 Live Momentum Scanner ($2-$30 Range)")
-    # Sort by RVOL to highlight high-volume low-float breakouts
-    st.dataframe(master_df.sort_values(by="RVOL", ascending=False), use_container_width=True, hide_index=True)
+    # Sorting by RVOL for momentum discovery
+    st.dataframe(scan_results.sort_values(by="RVOL", ascending=False), use_container_width=True, hide_index=True)
     st.divider()
 
     col_nav, col_chart = st.columns([1, 3])
     
     with col_nav:
-        st.subheader("Target Selection")
-        target = st.selectbox("Select Active Ticker", master_df['Ticker'].tolist())
+        st.subheader("Target Focus")
+        target = st.selectbox("Select Active Ticker", scan_results['Ticker'].tolist())
         
-        # Focused daily pull for EMA 9 Strategy
+        # Deep pull for the EMA 9 Chart
         hist = yf.download(target, period="60d", interval="1d", progress=False)
         
         if not hist.empty:
             ema9 = hist['Close'].ewm(span=9, adjust=False).mean()
-            price, ema = float(hist['Close'].iloc[-1]), float(ema9.iloc[-1])
+            last_p, last_e = float(hist['Close'].iloc[-1]), float(ema9.iloc[-1])
             
             # PRO SIGNAL BANNER
-            is_bullish = price > ema
-            bg = "#238636" if is_bullish else "#da3633"
-            label = "STRATEGIC ALIGNMENT: BULLISH" if is_bullish else "STRATEGIC ALIGNMENT: BEARISH"
-            st.markdown(f'<div class="status-banner" style="background:{bg};">{label}</div>', unsafe_allow_html=True)
+            is_bullish = last_p > last_e
+            banner_col = "#238636" if is_bullish else "#da3633"
+            banner_txt = "STRATEGIC ALIGNMENT: BULLISH" if is_bullish else "STRATEGIC ALIGNMENT: BEARISH"
+            st.markdown(f'<div class="status-banner" style="background:{banner_col};">{banner_txt}</div>', unsafe_allow_html=True)
             
-            # RISK SHIELD ($100 Account Protection)
+            # RISK SHIELD
             st.divider()
-            stop = price * 0.98
-            shares = 100 / (price - stop)
+            stop = last_p * 0.98
+            shares = 100 / (last_p - stop)
             st.info(f"🛡️ **RISK SHIELD ($100)**\n\nSize: {int(shares)} Shares\n\nStop: ${stop:.2f}")
 
     with col_chart:
@@ -97,6 +100,8 @@ if not master_df.empty:
             fig, ax = plt.subplots(figsize=(10, 4.2))
             ax.plot(hist.index, hist['Close'], color='#58a6ff', label='Price Action', lw=2)
             ax.plot(hist.index, ema9, color='#3fb950', label='EMA 9', ls='--', alpha=0.8)
+            
+            # Pro Aesthetics
             ax.set_facecolor('#0d1117')
             fig.patch.set_facecolor('#0d1117')
             ax.tick_params(colors='white')
@@ -104,7 +109,7 @@ if not master_df.empty:
             ax.legend(facecolor='#161b22', edgecolor='#30363d', labelcolor='white')
             st.pyplot(fig)
 else:
-    st.warning("📡 Market Syncing... The engine is switching to Batch Mode. Please wait.")
-    if st.button("Force Reconnect"):
+    st.warning("📡 Initializing Batch Sync... Please wait 10 seconds for market data.")
+    if st.button("Manual Reconnect"):
         st.cache_data.clear()
         st.rerun()
