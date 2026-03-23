@@ -6,7 +6,7 @@ import matplotlib.gridspec as gridspec
 import requests
 
 # --- 1. TERMINAL UI SETUP ---
-st.set_page_config(layout="wide", page_title="APEX COMMAND PRO", initial_sidebar_state="expanded")
+st.set_page_config(layout="wide", page_title="APEX COMMAND PRO")
 
 st.markdown("""
     <style>
@@ -34,16 +34,17 @@ def run_apex_scan():
         for t in tickers:
             if t not in raw or raw[t].empty: continue
             df = raw[t].dropna()
+            if len(df) < 2: continue
             
             curr = df.iloc[-1]
             prev = df.iloc[-2]
-            ema9 = df['Close'].ewm(span=9).mean().iloc[-1]
+            ema9_val = df['Close'].ewm(span=9).mean().iloc[-1]
             rvol = float(curr['Volume'] / df['Volume'].mean())
             
             # 10-Point Scoring
             score = 0
             if 2.0 <= curr['Close'] <= 25.0: score += 2
-            if curr['Close'] > ema9: score += 2
+            if curr['Close'] > ema9_val: score += 2
             if rvol > 1.3: score += 2
             if curr['Close'] > prev['Close']: score += 2
             if rvol > 3.0: score += 2
@@ -55,7 +56,7 @@ def run_apex_scan():
 
 # --- 3. SIDEBAR RADAR ---
 scan_df = run_apex_scan()
-target = None
+target_ticker = None
 
 with st.sidebar:
     st.title("📡 POWER RADAR")
@@ -72,12 +73,52 @@ with st.sidebar:
                 </div>
                 """, unsafe_allow_html=True)
         st.divider()
-        target = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
+        target_ticker = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
 
 # --- 4. COMMAND DECK ---
-if target:
-    st.header(f"🛡️ {target} COMMAND DECK")
-    hist = yf.download(target, period="60d", interval="1d", progress=False)
+if target_ticker:
+    st.header(f"🛡️ {target_ticker} COMMAND DECK")
+    hist_data = yf.download(target_ticker, period="60d", interval="1d", progress=False)
     
-    if not hist.empty:
-        ema9 = hist['Close'].ewm(span=9
+    if not hist_data.empty:
+        # EMA Calculation (Check for unclosed brackets here)
+        ema_line = hist_data['Close'].ewm(span=9).mean()
+        
+        # CHARTING ENGINE
+        fig = plt.figure(figsize=(14, 8), facecolor='#050505')
+        gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
+        
+        # Upper: Price Action
+        ax0 = plt.subplot(gs[0])
+        ax0.plot(hist_data.index, hist_data['Close'], color='#FFFFFF', lw=2.5, label="Price")
+        ax0.plot(hist_data.index, ema_line, color='#00e5ff', lw=1.5, ls='--', label="EMA 9")
+        ax0.set_facecolor('#050505')
+        ax0.grid(color='#1a1a1a', alpha=0.5)
+        
+        # Lower: Volume Intensity
+        ax1 = plt.subplot(gs[1], sharex=ax0)
+        v_colors = ['#00ff41' if c >= o else '#ff073a' for o, c in zip(hist_data['Open'], hist_data['Close'])]
+        ax1.bar(hist_data.index, hist_data['Volume'], color=v_colors, alpha=0.8)
+        ax1.set_facecolor('#050505')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+
+        # Catalyst Row
+        st.divider()
+        c_news, c_social = st.columns(2)
+        with c_news:
+            st.subheader("🗞️ NEWS")
+            try:
+                for n in yf.Ticker(target_ticker).news[:3]:
+                    st.info(f"{n['title']}")
+            except: st.write("Scanning news...")
+        with c_social:
+            st.subheader("💬 SOCIAL")
+            try:
+                r = requests.get(f"https://api.stocktwits.com/api/2/streams/symbol/{target_ticker}.json", timeout=5).json()
+                for m in r.get('messages', [])[:3]:
+                    st.success(f"@{m['user']['username']}: {m['body'][:100]}")
+            except: st.write("Syncing social feed...")
+else:
+    st.info("Select a ticker from the Power Radar.")
