@@ -19,24 +19,36 @@ st.markdown("""
     .bullish { background: #004d00; color: #00ff00; }
     .neutral { background: #333; color: #aaa; }
     .data-row { font-size: 18px !important; font-weight: 900 !important; }
+    
+    /* NEW: TradingView Button Style */
+    .tv-link {
+        color: #00ffcc !important;
+        text-decoration: none;
+        font-weight: bold;
+        border: 1px solid #00ffcc;
+        padding: 2px 8px;
+        border-radius: 4px;
+        transition: 0.3s;
+    }
+    .tv-link:hover {
+        background: #00ffcc;
+        color: #000 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. THE RESTORED ENGINE ---
+# --- 2. DATA ENGINES ---
 def get_ticker_metrics(ticker):
     try:
-        # Quote Data
         q_url = f'https://finnhub.io/api/v1/quote?symbol={ticker}&token={FINNHUB_KEY}'
         res = requests.get(q_url).json()
         price = res.get('c', 0)
         change = res.get('dp', 0)
         
-        # Pull Sentiment & News
         sent_url = f'https://finnhub.io/api/v1/news-sentiment?symbol={ticker}&token={FINNHUB_KEY}'
         s_res = requests.get(sent_url).json()
         s_score = s_res.get('sentiment', {}).get('bullishPercent', 0.5)
         
-        # Pull News Headline
         news_url = f'https://finnhub.io/api/v1/company-news?symbol={ticker}&from=2026-03-20&to=2026-03-23&token={FINNHUB_KEY}'
         n_res = requests.get(news_url).json()
         headline = n_res[0].get('headline', '') if n_res else "No recent catalysts found."
@@ -52,35 +64,31 @@ def get_ticker_metrics(ticker):
         }
     except: return None
 
-# --- 3. EXPANDED APEX WATCHLIST ---
-# Added "Room to Grow" tickers in energy, AI, and biotech
-watchlist = [
-    "AEMD", "TPET", "MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", 
-    "NIO", "WULF", "SERV", "LUNR", "OKLO", "NNE", "SISI", "ZAPP", 
-    "KULR", "FFIE", "GWAV", "WKHS", "HOLO", "BTBT", "PTON", "LAES",
-    "CAN", "ANY", "MIGI", "GREE", "VLD", "QUBT" # Look-alike small caps
-]
+# --- 3. WATCHLIST ---
+watchlist = ["AEMD", "TPET", "MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "WULF", "SERV", "LUNR", "OKLO", "NNE", "SISI", "ZAPP", "KULR", "FFIE", "GWAV", "WKHS", "HOLO", "BTBT", "PTON", "LAES", "CAN", "ANY", "MIGI", "GREE", "VLD", "QUBT"]
 
 results = []
 for t in watchlist:
     m = get_ticker_metrics(t)
     if m:
         p_val = float(m['price'].replace('$', ''))
-        # Slightly wider filter to ensure we hit 20 stocks
         if 1.00 <= p_val <= 35.0:
             results.append(m)
 
-# UI RENDER
-st.title(f"🔮 APEX ORACLE: MASTER COMMAND CENTER")
+# --- 4. UI RENDER ---
+st.title("🔮 APEX ORACLE: COMMAND CENTER")
 st.markdown('<div class="oracle-grid header-row"><div>Ticker</div><div>Price</div><div>Change</div><div>Sentiment</div><div>Strength</div><div>Signal</div></div>', unsafe_allow_html=True)
 
 top_20 = sorted(results, key=lambda x: x['score'], reverse=True)[:20]
 
 for d in top_20:
     sig = "🔥 GOLD" if d['score'] >= 80 else "⚡ ACTIVE"
+    # TRADINGVIEW DEEP LINK
+    tv_url = f"https://www.tradingview.com/chart/?symbol={d['ticker']}"
+    
     st.markdown(f"""
         <div class="oracle-grid data-row">
-            <div style="color:#00ffcc;">{d['ticker']}</div>
+            <div><a href="{tv_url}" target="_blank" class="tv-link">{d['ticker']}</a></div>
             <div>{d['price']}</div>
             <div style="color:{'#00ff00' if '-' not in d['change'] else '#ff3333'};">{d['change']}</div>
             <div><span class="sentiment-tag {d['css']}">{d['label']}</span></div>
@@ -92,9 +100,4 @@ for d in top_20:
 st.markdown("<br><h3>📰 PRO CATALYST FEED</h3>", unsafe_allow_html=True)
 for d in top_20:
     if d['news'] != "No recent catalysts found.":
-        st.markdown(f"""
-            <div style="background:#0a0a0a; padding:12px; border-left:4px solid #00ffcc; margin-bottom:8px;">
-                <b style="color:#00ffcc;">{d['ticker']}</b> | <span class="sentiment-tag {d['css']}">{d['label']}</span><br>
-                <span style="font-size:14px;">{d['news']}</span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#0a0a0a; padding:12px; border-left:4px solid #00ffcc; margin-bottom:8px;"><b style="color:#00ffcc;">{d["ticker"]}</b>: {d["news"]}</div>', unsafe_allow_html=True)
