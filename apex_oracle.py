@@ -1,115 +1,95 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-import requests
-from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from streamlit_autorefresh import st_autorefresh
 
-# --- 1. PRO TERMINAL UI ---
-st.set_page_config(layout="wide", page_title="APEX LIVE COMMAND")
-
-# LIVE HEARTBEAT: This forces the page to refresh every 30 seconds
-# Note: You may need to run 'pip install streamlit-autorefresh' in your terminal
-try:
-    from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=30000, key="apex_heartbeat")
-except:
-    st.warning("Install 'streamlit-autorefresh' for automatic 30s updates.")
+# --- 1. TERMINAL CONFIG ---
+st.set_page_config(layout="wide", page_title="APEX PRO COMMAND")
+st_autorefresh(interval=30000, key="terminal_heartbeat")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #050505; color: #E0E0E0; }
-    [data-testid="stSidebar"] { background-color: #0a0a0a; border-right: 1px solid #1e1e1e; min-width: 380px !important; }
-    .score-box { 
-        width: 42px; height: 42px; border-radius: 4px; 
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 900; font-size: 18px; margin-right: 12px; color: #000;
-    }
-    .ticker-card { 
-        display: flex; align-items: center; padding: 10px; border-radius: 6px;
-        margin-bottom: 8px; background: #111; border: 1px solid #222;
-    }
-    .live-tag { color: #00ff41; font-size: 10px; font-weight: bold; border: 1px solid #00ff41; padding: 2px 5px; border-radius: 3px; }
+    .stApp { background-color: #000000; color: #ffffff; }
+    [data-testid="stSidebar"] { background-color: #050505; border-right: 1px solid #1a1a1a; min-width: 350px !important; }
+    .stMetric { background: #0a0a0a; border: 1px solid #1a1a1a; padding: 10px; border-radius: 4px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE ENGINE (1-MINUTE INTERVAL) ---
-@st.cache_data(ttl=30)
-def run_apex_live_scan():
-    tickers = ["MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
-    results = []
-    try:
-        # Fetching 1-minute data for the current session
-        raw = yf.download(tickers, period="1d", interval="1m", group_by='ticker', progress=False)
-        for t in tickers:
-            if t not in raw or raw[t].empty: continue
-            df = raw[t].dropna()
-            if len(df) < 10: continue
-            
-            curr = df.iloc[-1]
-            ema9 = df['Close'].ewm(span=9).mean().iloc[-1]
-            # RVOL compared to the average of the last 100 minutes
-            avg_vol = df['Volume'].tail(100).mean()
-            rvol = float(curr['Volume'] / avg_vol) if avg_vol > 0 else 0
-            
-            score = 0
-            if 2.0 <= curr['Close'] <= 25.0: score += 2
-            if curr['Close'] > ema9: score += 2
-            if rvol > 1.5: score += 2
-            if curr['Close'] > df.iloc[-2]['Close']: score += 2
-            if rvol > 3.0: score += 2
-            
-            color = "#00ff41" if score >= 8 else "#ffea00" if score >= 5 else "#ff073a"
-            results.append({
-                "Ticker": t, "Price": round(curr['Close'], 2), 
-                "Score": int(score), "Color": color, "RVOL": round(rvol, 1)
-            })
-        return pd.DataFrame(results)
-    except Exception as e:
-        return pd.DataFrame()
-
-# --- 3. SIDEBAR RADAR ---
-scan_results = run_apex_live_scan()
-focus_ticker = None
-
+# --- 2. SIDEBAR CONTROLS (The "Settings" Panel) ---
 with st.sidebar:
-    st.title("📡 LIVE RADAR")
-    st.caption(f"Last Sync: {datetime.now().strftime('%H:%M:%S')}")
-    if not scan_results.empty:
-        sorted_df = scan_results.sort_values(by="Score", ascending=False)
-        for _, row in sorted_df.iterrows():
-            st.markdown(f"""
-                <div class="ticker-card">
-                    <div class="score-box" style="background:{row['Color']};">{row['Score']}</div>
-                    <div style="flex-grow:1;">
-                        <span style="font-weight:bold; font-size:16px;">{row['Ticker']}</span> <span class="live-tag">1M</span><br>
-                        <span style="color:#888; font-size:11px;">P: ${row['Price']} | RVOL: {row['RVOL']}x</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        st.divider()
-        focus_ticker = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
+    st.title("⚙️ TERMINAL SETTINGS")
+    
+    st.subheader("Timeframe")
+    tf_choice = st.selectbox("Select Interval", ["1m", "5m", "15m", "30m", "1h", "1d"], index=0)
+    
+    st.subheader("Indicators")
+    ema_fast = st.number_input("Fast EMA Period", value=9, min_value=1)
+    ema_slow = st.number_input("Slow EMA Period", value=21, min_value=1)
+    show_volume = st.checkbox("Show Volume Panel", value=True)
+    
+    st.divider()
+    st.subheader("Watchlist")
+    # You can add/remove tickers here directly in the UI
+    tickers = st.text_input("Assets (comma separated)", "MARA,SOUN,BBAI,PLTR,RIOT,LCID,NIO,GNS,HOLO,UPST,TPST").split(',')
+    target = st.selectbox("FOCUS TICKER", [t.strip() for t in tickers])
 
-# --- 4. THE COMMAND DECK ---
-if focus_ticker:
-    st.header(f"🛡️ {focus_ticker} // 1-MINUTE LIVE DECK")
-    # Pulling 1-minute data for the chart
-    hist = yf.download(focus_ticker, period="1d", interval="1m", progress=False)
+# --- 3. THE ENGINE ---
+@st.cache_data(ttl=25)
+def get_live_data(symbol, interval):
+    # Adjusting lookback period based on timeframe to keep the chart clean
+    period = "1d" if "m" in interval else "1mo"
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
+    return df.dropna()
+
+# --- 4. COMMAND DECK ---
+if target:
+    hist = get_live_data(target, tf_choice)
     
     if not hist.empty:
-        ema_line = hist['Close'].ewm(span=9).mean()
+        # Calculate Dynamic Indicators
+        hist['EMA_Fast'] = hist['Close'].ewm(span=ema_fast).mean()
+        hist['EMA_Slow'] = hist['Close'].ewm(span=ema_slow).mean()
         
-        # CHARTING
-        fig, ax = plt.subplots(figsize=(14, 6), facecolor='#050505')
-        ax.plot(hist.index, hist['Close'], color='#FFFFFF', lw=1.5, label="Price")
-        ax.plot(hist.index, ema_line, color='#00e5ff', lw=1, ls='--', label="EMA 9")
-        ax.set_facecolor('#050505')
-        ax.grid(color='#1a1a1a', alpha=0.3)
-        ax.tick_params(colors='#555', labelsize=8)
-        st.pyplot(fig)
+        # Header Metrics
+        c1, c2, c3 = st.columns(3)
+        curr_price = hist['Close'].iloc[-1]
+        chg = ((curr_price - hist['Open'].iloc[0]) / hist['Open'].iloc[0]) * 100
+        
+        c1.metric(f"{target} PRICE", f"${curr_price:.2f}", f"{chg:.2f}%")
+        c2.metric("INTERVAL", tf_choice)
+        c3.metric("RVOL", f"{float(hist['Volume'].iloc[-1] / hist['Volume'].mean()):.1f}x")
 
-        # LIVE VOLUME
-        st.caption("MINUTE-BY-MINUTE VOLUME VELOCITY")
-        st.bar_chart(hist['Volume'].tail(60), color="#222222", height=150)
+        # MAIN CHARTING PANEL
+        fig = go.Figure()
+
+        # Add Candlesticks
+        fig.add_trace(go.Candlestick(
+            x=hist.index, open=hist['Open'], high=hist['High'],
+            low=hist['Low'], close=hist['Close'], name="Price"
+        ))
+
+        # Add Dynamic EMAs
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['EMA_Fast'], line=dict(color='#00e5ff', width=1), name=f"EMA {ema_fast}"))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['EMA_Slow'], line=dict(color='#ff00ff', width=1), name=f"EMA {ema_slow}"))
+
+        fig.update_layout(
+            template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            height=600,
+            paper_bgcolor="#000000",
+            plot_bgcolor="#000000",
+            margin=dict(l=0, r=0, t=0, b=0),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+        if show_volume:
+            st.bar_chart(hist['Volume'].tail(50), color="#333333")
+
+        # BOTTOM DATA GRID
+        with st.expander("VIEW RAW TAPE DATA"):
+            st.dataframe(hist.tail(20).sort_index(ascending=False), use_container_width=True)
 else:
-    st.info("Radar scanning for momentum...")
+    st.info("Configure your watchlist in the sidebar to begin.")
