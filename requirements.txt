@@ -1,6 +1,5 @@
 streamlit
 yfinance
 pandas
-matplotlib
+plotly
 streamlit-autorefresh
-nltk
