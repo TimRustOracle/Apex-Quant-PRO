@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 
-# --- 1. PRO TERMINAL UI ---
+# --- 1. PRO UI ARCHITECTURE ---
 st.set_page_config(layout="wide", page_title="APEX COMMAND PRO")
 
 st.markdown("""
@@ -23,9 +23,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE ENGINE ---
+# --- 2. DATA & SCAN ENGINE ---
 @st.cache_data(ttl=60)
 def run_apex_engine():
+    # Focused on your $2-$20 range and low-float movers
     tickers = ["MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
     results = []
     try:
@@ -39,7 +40,7 @@ def run_apex_engine():
             ema9 = df['Close'].ewm(span=9).mean().iloc[-1]
             rvol = float(curr['Volume'] / df['Volume'].mean())
             
-            # 1-10 Scoring Logic
+            # Scoring Logic
             score = 0
             if 2.0 <= curr['Close'] <= 25.0: score += 2
             if curr['Close'] > ema9: score += 2
@@ -48,24 +49,29 @@ def run_apex_engine():
             if rvol > 3.0: score += 2
             
             color = "#00ff41" if score >= 8 else "#ffea00" if score >= 5 else "#ff073a"
-            results.append({"Ticker": t, "Price": round(curr['Close'], 2), "Score": int(score), "Color": color, "RVOL": round(rvol, 1)})
+            results.append({
+                "Ticker": t, "Price": round(curr['Close'], 2), 
+                "Score": int(score), "Color": color, 
+                "RVOL": round(rvol, 1), "Setup": "🔥 HOT" if (curr['Close'] > ema9 and rvol > 1.5) else "WAIT"
+            })
         return pd.DataFrame(results)
     except: return pd.DataFrame()
 
-# --- 3. SIDEBAR RADAR ---
+# --- 3. SIDEBAR RADAR & TOOLS ---
 scan_results = run_apex_engine()
 focus_ticker = None
 
 with st.sidebar:
     st.title("📡 POWER RADAR")
     if not scan_results.empty:
+        # Prioritize "HOT" Setups
         sorted_df = scan_results.sort_values(by="Score", ascending=False)
         for _, row in sorted_df.iterrows():
             st.markdown(f"""
                 <div class="ticker-card">
                     <div class="score-box" style="background:{row['Color']};">{row['Score']}</div>
                     <div style="flex-grow:1;">
-                        <span style="font-weight:bold; font-size:16px;">{row['Ticker']}</span><br>
+                        <span style="font-weight:bold; font-size:16px;">{row['Ticker']} <small style="color:#00ff41;">{row['Setup']}</small></span><br>
                         <span style="color:#888; font-size:11px;">P: ${row['Price']} | RVOL: {row['RVOL']}x</span>
                     </div>
                 </div>
@@ -73,23 +79,23 @@ with st.sidebar:
         st.divider()
         focus_ticker = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
     
-    # NEW: Quick Risk Sizer
+    # Risk Management Tool
     st.divider()
     st.subheader("⚖️ POSITION SIZER")
-    risk_amt = st.number_input("Risk Amount ($)", value=100)
+    risk_amt = st.number_input("Account Risk ($)", value=100)
     stop_dist = st.slider("Stop Loss %", 1, 10, 5)
-    if focus_ticker:
+    if focus_ticker and not scan_results.empty:
         price = scan_results[scan_results['Ticker']==focus_ticker]['Price'].values[0]
         shares = int(risk_amt / (price * (stop_dist/100)))
         st.code(f"BUY: {shares} SHARES\nCOST: ${shares * price:,.2f}")
 
-# --- 4. THE COMMAND DECK ---
+# --- 4. COMMAND DECK ---
 if focus_ticker:
     st.header(f"🛡️ {focus_ticker} COMMAND DECK")
     hist = yf.download(focus_ticker, period="60d", interval="1d", progress=False)
     
     if not hist.empty:
-        # Price Action Panel
+        # Chart 1: Price & EMA
         ema_val = hist['Close'].ewm(span=9).mean()
         fig, ax = plt.subplots(figsize=(14, 5), facecolor='#050505')
         ax.plot(hist.index, hist['Close'], color='#FFFFFF', lw=2, label="Price")
@@ -99,26 +105,22 @@ if focus_ticker:
         ax.tick_params(colors='#666')
         st.pyplot(fig)
 
-        # Volume Panel
+        # Chart 2: Volume Velocity
         st.bar_chart(hist['Volume'], color="#333333", height=150)
 
-        # NEW: Optimized Catalyst & Social Row
+        # Catalyst Row
         st.divider()
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🗞️ LATEST CATALYSTS")
+            st.subheader("🗞️ NEWS")
             try:
-                news_items = yf.Ticker(focus_ticker).news[:4]
-                for n in news_items:
-                    st.markdown(f"▸ **{n['publisher']}**: [{n['title']}]({n['link']})")
-            except: st.write("Scanning for regulatory news...")
-        
+                for n in yf.Ticker(focus_ticker).news[:3]:
+                    st.info(f"{n['title']}")
+            except: st.write("Scanning catalysts...")
         with c2:
-            st.subheader("💬 SOCIAL SENTIMENT")
+            st.subheader("💬 SOCIAL")
             try:
                 r = requests.get(f"https://api.stocktwits.com/api/2/streams/symbol/{focus_ticker}.json", timeout=5).json()
                 for m in r.get('messages', [])[:3]:
-                    st.caption(f"**@{m['user']['username']}**: {m['body'][:120]}...")
-            except: st.write("Sentiment stream unavailable.")
-else:
-    st.info("Select a ticker from the Power Radar to begin.")
+                    st.success(f"@{m['user']['username']}: {m['body'][:100]}")
+            except: st.write("Social stream syncing...")
