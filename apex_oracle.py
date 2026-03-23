@@ -3,96 +3,72 @@ import yfinance as yf
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. ENGINE CHECK ---
-try:
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    PLOTLY_READY = True
-except ImportError:
-    PLOTLY_READY = False
+# --- 1. CONFIG ---
+st.set_page_config(layout="wide", page_title="APEX ORACLE")
+st_autorefresh(interval=30000, key="oracle_pulse") # Auto-refresh every 30s
 
-# --- 2. CONFIG & REFRESH ---
-st.set_page_config(layout="wide", page_title="APEX MASTER SUITE")
-st_autorefresh(interval=30000, key="global_heartbeat")
+# Vibrant Terminal Styling
+st.markdown("""
+    <style>
+    .stApp { background-color: #000000; color: #00ffcc; }
+    .stTable { background-color: #0a0a0a; border: 1px solid #333; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Bloomberg-Style Dark Theme
-st.markdown("<style>.stApp { background-color: #000; color: #fff; }</style>", unsafe_allow_html=True)
+# --- 2. THE SCANNER ENGINE ---
+def get_oracle_data(ticker):
+    try:
+        df = yf.download(ticker, period="1d", interval="5m", progress=False)
+        if df.empty: return None
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        
+        price = df['Close'].iloc[-1]
+        ema = df['Close'].ewm(span=9).mean().iloc[-1]
+        
+        # Strength Logic (RSI + Momentum)
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
+        rsi = 100 - (100 / (1 + (gain / loss)))
+        
+        # Strength Score 0-100
+        score = (rsi * 0.7) + (((price - ema) / ema) * 1000)
+        score = round(min(100, max(0, score)), 1)
+        
+        return {
+            "TICKER": ticker,
+            "PRICE": f"${price:.2f}",
+            "STRENGTH": score,
+            "SIGNAL": "🔥 APEX BUY" if price > ema and rsi > 50 else "---",
+            "RSI": round(rsi, 1)
+        }
+    except: return None
 
-# --- 3. TAB NAVIGATION ---
-tab1, tab2, tab3 = st.tabs(["📡 POWER RADAR", "📊 COMMAND DECK", "🧠 STRATEGY ANALYZER"])
+# --- 3. THE DASHBOARD ---
+st.title("🔮 APEX ORACLE SCANNER")
 
-# --- 4. DATA ENGINE (FIXED FOR MULTI-INDEX) ---
-def fetch_clean_data(symbol, interval):
-    lookback = "1d" if "m" in interval else "2mo"
-    df = yf.download(symbol, period=lookback, interval=interval, progress=False)
-    
-    if df.empty:
-        return pd.DataFrame()
-    
-    # Fix for yfinance MultiIndex issue that causes ValueErrors
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    return df.dropna()
+col1, col2 = st.columns([2, 1])
 
-# --- TAB 1: POWER RADAR ---
-with tab1:
-    st.header("RADAR: LIVE MOMENTUM SCAN")
+with col1:
+    st.subheader("📡 MOMENTUM HEAT MAP")
     watchlist = ["MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
     
-    scan_results = []
-    for t in watchlist:
-        try:
-            d = fetch_clean_data(t, "5m").tail(5)
-            if not d.empty:
-                price = float(d['Close'].iloc[-1])
-                open_p = float(d['Open'].iloc[0])
-                chg = ((price - open_p) / open_p) * 100
-                scan_results.append({"SYMBOL": t, "PRICE": f"${price:.2f}", "CHANGE %": f"{chg:.2f}%"})
-        except: continue
-    st.table(pd.DataFrame(scan_results))
+    results = [get_oracle_data(t) for t in watchlist if get_oracle_data(t) is not None]
+    df = pd.DataFrame(results)
 
-# --- TAB 2: COMMAND DECK ---
-with tab2:
-    if not PLOTLY_READY:
-        st.error("🚨 PLOTLY MISSING: Add 'plotly' to your requirements.txt to unlock Pro Charts.")
-    else:
-        with st.sidebar:
-            st.title("⚙️ COMMANDER")
-            target = st.selectbox("ENGAGE TICKER", watchlist)
-            tf = st.selectbox("TIMEFRAME", ["1m", "5m", "15m", "1h", "1d"], index=0)
-            ema_p = st.number_input("EMA CLOUD", value=9, min_value=1)
-            rsi_p = st.slider("RSI PERIOD", 2, 30, 14)
+    if not df.empty:
+        # HEAT MAP COLORING
+        def apply_heat(val):
+            color = 'red' if val < 40 else 'orange' if val < 60 else 'green'
+            return f'background-color: {color}; color: white; font-weight: bold'
+        
+        st.table(df.style.applymap(apply_heat, subset=['STRENGTH']))
 
-        hist = fetch_clean_data(target, tf)
-        if not hist.empty:
-            # Safe Indicator Calculation
-            hist['EMA'] = hist['Close'].ewm(span=ema_p).mean()
-            
-            # RSI Logic
-            delta = hist['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=rsi_p).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_p).mean()
-            hist['RSI'] = 100 - (100 / (1 + (gain / loss)))
-
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-            
-            # Price & EMA
-            fig.add_trace(go.Candlestick(x=hist.index, open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name="Price"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=hist.index, y=hist['EMA'], line=dict(color='#00e5ff', width=1.5), name="EMA"), row=1, col=1)
-            
-            # RSI
-            fig.add_trace(go.Scatter(x=hist.index, y=hist['RSI'], line=dict(color='#ffea00'), name="RSI"), row=2, col=1)
-            fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
-            fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=1)
-
-            fig.update_layout(template="plotly_dark", height=800, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True)
-
-# --- TAB 3: STRATEGY ANALYZER ---
-with tab3:
-    st.header("STRATEGY ANALYZER")
-    st.info("Log your missed setups to track performance.")
-    missed_ticker = st.text_input("Missed Ticker", "MARA")
-    if st.button("LOG MISSED TRADE"):
-        st.success(f"Logged {missed_ticker} for review.")
+with col2:
+    st.subheader("📰 NEWS & SENTIMENT")
+    st.info("MARA: BTC strength driving crypto proxies.")
+    st.warning("SOUN: Eyeing resistance at $6.50.")
+    st.success("BBAI: AI sector seeing fresh volume inflow.")
+    
+    st.divider()
+    st.write("📈 **Instructions:** Find the 'Green' strength stocks here, then execute the setup on TradingView.")
