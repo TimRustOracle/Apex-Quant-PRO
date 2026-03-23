@@ -10,11 +10,11 @@ st.set_page_config(layout="wide", page_title="APEX COMMAND PRO")
 st.markdown("""
     <style>
     .stApp { background-color: #050505; color: #E0E0E0; }
-    [data-testid="stSidebar"] { background-color: #0a0a0a; border-right: 1px solid #1e1e1e; min-width: 400px !important; }
+    [data-testid="stSidebar"] { background-color: #0a0a0a; border-right: 1px solid #1e1e1e; min-width: 380px !important; }
     .score-box { 
-        width: 44px; height: 44px; border-radius: 4px; 
+        width: 42px; height: 42px; border-radius: 4px; 
         display: flex; align-items: center; justify-content: center;
-        font-weight: 900; font-size: 20px; margin-right: 12px; color: #000;
+        font-weight: 900; font-size: 18px; margin-right: 12px; color: #000;
     }
     .ticker-card { 
         display: flex; align-items: center; padding: 10px; border-radius: 6px;
@@ -72,6 +72,16 @@ with st.sidebar:
                 """, unsafe_allow_html=True)
         st.divider()
         focus_ticker = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
+    
+    # NEW: Quick Risk Sizer
+    st.divider()
+    st.subheader("⚖️ POSITION SIZER")
+    risk_amt = st.number_input("Risk Amount ($)", value=100)
+    stop_dist = st.slider("Stop Loss %", 1, 10, 5)
+    if focus_ticker:
+        price = scan_results[scan_results['Ticker']==focus_ticker]['Price'].values[0]
+        shares = int(risk_amt / (price * (stop_dist/100)))
+        st.code(f"BUY: {shares} SHARES\nCOST: ${shares * price:,.2f}")
 
 # --- 4. THE COMMAND DECK ---
 if focus_ticker:
@@ -79,35 +89,36 @@ if focus_ticker:
     hist = yf.download(focus_ticker, period="60d", interval="1d", progress=False)
     
     if not hist.empty:
-        # 4a. Main Price Action (Matplotlib - Stable)
+        # Price Action Panel
         ema_val = hist['Close'].ewm(span=9).mean()
         fig, ax = plt.subplots(figsize=(14, 5), facecolor='#050505')
         ax.plot(hist.index, hist['Close'], color='#FFFFFF', lw=2, label="Price")
         ax.plot(hist.index, ema_val, color='#00e5ff', lw=1.2, ls='--', label="EMA 9")
         ax.set_facecolor('#050505')
         ax.grid(color='#1a1a1a', alpha=0.4)
-        ax.set_title("PRICE ACTION // EMA 9 CLOUD", color='#888', loc='left', fontsize=10)
+        ax.tick_params(colors='#666')
         st.pyplot(fig)
 
-        # 4b. Volume Intensity (Streamlit Native - Error-Proof)
-        st.write("VOLUME VELOCITY")
+        # Volume Panel
         st.bar_chart(hist['Volume'], color="#333333", height=150)
 
-        # 4c. Catalyst & Social Row
+        # NEW: Optimized Catalyst & Social Row
         st.divider()
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🗞️ NEWS")
+            st.subheader("🗞️ LATEST CATALYSTS")
             try:
-                for n in yf.Ticker(focus_ticker).news[:3]:
-                    st.info(f"{n['title']}")
-            except: st.write("Scanning news feeds...")
+                news_items = yf.Ticker(focus_ticker).news[:4]
+                for n in news_items:
+                    st.markdown(f"▸ **{n['publisher']}**: [{n['title']}]({n['link']})")
+            except: st.write("Scanning for regulatory news...")
+        
         with c2:
-            st.subheader("💬 SOCIAL")
+            st.subheader("💬 SOCIAL SENTIMENT")
             try:
                 r = requests.get(f"https://api.stocktwits.com/api/2/streams/symbol/{focus_ticker}.json", timeout=5).json()
                 for m in r.get('messages', [])[:3]:
-                    st.success(f"@{m['user']['username']}: {m['body'][:100]}")
-            except: st.write("Social API syncing...")
+                    st.caption(f"**@{m['user']['username']}**: {m['body'][:120]}...")
+            except: st.write("Sentiment stream unavailable.")
 else:
     st.info("Select a ticker from the Power Radar to begin.")
