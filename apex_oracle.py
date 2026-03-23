@@ -3,24 +3,18 @@ import yfinance as yf
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. CONFIG & HIGH-VIS STYLING ---
+# --- 1. CONFIG & SLIM STYLING ---
 st.set_page_config(layout="wide", page_title="APEX ORACLE")
 st_autorefresh(interval=30000, key="oracle_pulse")
 
-# Force High Contrast & Large Text
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
-    h1, h2, h3 { color: #00FFCC !important; font-family: 'Arial Black'; }
-    /* Make Table Text Bold and Large */
-    .stTable td, .stTable th { 
-        font-size: 20px !important; 
-        font-weight: bold !important; 
-        color: #FFFFFF !important;
-        border: 1px solid #444 !important;
-    }
-    .metric-label { font-size: 18px !important; color: #00FFCC !important; }
-    .metric-value { font-size: 32px !important; font-weight: bold !important; }
+    /* Slim down the table and rows */
+    .stTable td { padding: 5px !important; font-size: 18px !important; font-weight: bold; }
+    /* Progress Bar Container */
+    .progress-bg { background-color: #222; border-radius: 5px; width: 100%; height: 20px; }
+    .progress-fill { height: 20px; border-radius: 5px; transition: width 0.5s ease-in-out; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,54 +27,47 @@ def get_oracle_data(ticker):
         
         price = df['Close'].iloc[-1]
         ema = df['Close'].ewm(span=9).mean().iloc[-1]
-        
-        # Volume Velocity
-        velocity = (df['Volume'].iloc[-1] / df['Volume'].mean()) * 100
-        
-        # RSI Strength
+        rsi_val = 14
         delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
+        gain = (delta.where(delta > 0, 0)).rolling(window=rsi_val).mean().iloc[-1]
+        loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_val).mean().iloc[-1]
         rsi = 100 - (100 / (1 + (gain / loss)))
         
-        # Clean Score (0-100)
+        # Strength Score (0-100)
         score = (rsi * 0.6) + (((price - ema) / ema) * 1000)
         score = int(round(min(100, max(0, score)), 0))
         
+        # COLOR LOGIC: Red -> Green -> Gold
+        if score >= 85: color = "#FFD700" # GOLD
+        elif score >= 60: color = "#00FF00" # GREEN
+        else: color = "#FF0000" # RED
+
+        # Custom Sliding Bar HTML
+        bar_html = f'''
+            <div class="progress-bg">
+                <div class="progress-fill" style="width: {score}%; background-color: {color};"></div>
+            </div>
+        '''
+
         return {
             "TICKER": ticker,
             "PRICE": f"${price:.2f}",
-            "STRENGTH": score,
-            "VOL %": f"{int(velocity)}%",
-            "SIGNAL": "🔥 BUY" if price > ema and rsi > 55 else "---"
+            "STRENGTH": bar_html,
+            "SCORE": score,
+            "SIGNAL": "🔥 BUY" if score >= 60 else "---"
         }
     except: return None
 
 # --- 3. THE DASHBOARD ---
-st.title("🔮 APEX ORACLE: COMMANDER")
+st.title("🔮 APEX ORACLE")
 
-# TOP ROW: Overall Market Pulse
-m1, m2, m3 = st.columns(3)
-m1.metric("MARKET STATUS", "LIVE", delta="SCANNING", delta_color="normal")
-m2.metric("REFRESH RATE", "30 SEC", "⚡ ACTIVE")
-m3.metric("WATCHLIST COUNT", "11 TICKERS", "🛡️ APEX")
-
-st.divider()
-
-# MAIN ROW: Heat Map
 watchlist = ["MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
 data_list = [get_oracle_data(t) for t in watchlist if get_oracle_data(t) is not None]
 df = pd.DataFrame(data_list)
 
 if not df.empty:
-    # High-Contrast Heat Map Logic
-    def apply_heat(val):
-        if val >= 70: color = '#00FF00' # Neon Green
-        elif val >= 50: color = '#FFA500' # Bright Orange
-        else: color = '#FF0000' # Bright Red
-        return f'background-color: {color}; color: black; font-size: 24px; text-align: center;'
+    # Use st.write with unsafe_allow_html to render the sliding bars
+    st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-    st.table(df.style.applymap(apply_heat, subset=['STRENGTH']))
-
-st.subheader("📰 STRATEGY NOTES")
-st.info("Focus ONLY on GREEN 'STRENGTH' rows with 'VOL %' above 150%.")
+st.divider()
+st.info("💡 GOLD (85+) = Extreme Momentum | GREEN (60+) = Apex Entry | RED = No Trade")
