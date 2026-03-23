@@ -2,10 +2,9 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import requests
 
-# --- 1. PRO UI ARCHITECTURE ---
+# --- 1. PRO TERMINAL UI ---
 st.set_page_config(layout="wide", page_title="APEX COMMAND PRO")
 
 st.markdown("""
@@ -40,6 +39,7 @@ def run_apex_engine():
             ema9 = df['Close'].ewm(span=9).mean().iloc[-1]
             rvol = float(curr['Volume'] / df['Volume'].mean())
             
+            # 1-10 Scoring Logic
             score = 0
             if 2.0 <= curr['Close'] <= 25.0: score += 2
             if curr['Close'] > ema9: score += 2
@@ -79,36 +79,28 @@ if focus_ticker:
     hist = yf.download(focus_ticker, period="60d", interval="1d", progress=False)
     
     if not hist.empty:
-        ema9_line = hist['Close'].ewm(span=9).mean()
-        
-        # FIXED CHARTING ENGINE
-        fig = plt.figure(figsize=(14, 8), facecolor='#050505')
-        gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
-        
-        # Price Panel
-        ax0 = plt.subplot(gs[0])
-        ax0.plot(hist.index, hist['Close'], color='#FFFFFF', lw=2, label="Price")
-        ax0.plot(hist.index, ema9_line, color='#00e5ff', lw=1.2, ls='--', label="EMA 9")
-        ax0.set_facecolor('#050505')
-        ax0.grid(color='#1a1a1a', alpha=0.4)
-        
-        # Volume Panel (Simplified to kill the TypeError)
-        ax1 = plt.subplot(gs[1], sharex=ax0)
-        ax1.bar(hist.index, hist['Volume'], color='#333333', alpha=0.8) # Neutral color to ensure stability
-        ax1.set_facecolor('#050505')
-        ax1.grid(color='#1a1a1a', alpha=0.4)
-        
-        plt.tight_layout()
+        # 4a. Main Price Action (Matplotlib - Stable)
+        ema_val = hist['Close'].ewm(span=9).mean()
+        fig, ax = plt.subplots(figsize=(14, 5), facecolor='#050505')
+        ax.plot(hist.index, hist['Close'], color='#FFFFFF', lw=2, label="Price")
+        ax.plot(hist.index, ema_val, color='#00e5ff', lw=1.2, ls='--', label="EMA 9")
+        ax.set_facecolor('#050505')
+        ax.grid(color='#1a1a1a', alpha=0.4)
+        ax.set_title("PRICE ACTION // EMA 9 CLOUD", color='#888', loc='left', fontsize=10)
         st.pyplot(fig)
 
-        # Catalyst & Sentiment
+        # 4b. Volume Intensity (Streamlit Native - Error-Proof)
+        st.write("VOLUME VELOCITY")
+        st.bar_chart(hist['Volume'], color="#333333", height=150)
+
+        # 4c. Catalyst & Social Row
         st.divider()
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("🗞️ NEWS")
             try:
                 for n in yf.Ticker(focus_ticker).news[:3]:
-                    st.markdown(f"**{n['publisher']}**: {n['title']}")
+                    st.info(f"{n['title']}")
             except: st.write("Scanning news feeds...")
         with c2:
             st.subheader("💬 SOCIAL")
