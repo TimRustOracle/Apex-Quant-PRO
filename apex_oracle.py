@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import requests
 
-# --- 1. TERMINAL UI SETUP ---
+# --- 1. UI ARCHITECTURE ---
 st.set_page_config(layout="wide", page_title="APEX COMMAND PRO")
 
 st.markdown("""
@@ -24,10 +24,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. MASTER SCANNER ENGINE ---
+# --- 2. ENGINE ---
 @st.cache_data(ttl=60)
 def run_apex_scan():
-    tickers = ["SOUN", "BBAI", "PLTR", "MARA", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
+    tickers = ["MARA", "SOUN", "BBAI", "PLTR", "RIOT", "LCID", "NIO", "GNS", "HOLO", "UPST", "TPST"]
     results = []
     try:
         raw = yf.download(tickers, period="5d", interval="1d", group_by='ticker', progress=False)
@@ -37,16 +37,14 @@ def run_apex_scan():
             if len(df) < 2: continue
             
             curr = df.iloc[-1]
-            prev = df.iloc[-2]
             ema9_val = df['Close'].ewm(span=9).mean().iloc[-1]
             rvol = float(curr['Volume'] / df['Volume'].mean())
             
-            # 10-Point Scoring
             score = 0
             if 2.0 <= curr['Close'] <= 25.0: score += 2
             if curr['Close'] > ema9_val: score += 2
             if rvol > 1.3: score += 2
-            if curr['Close'] > prev['Close']: score += 2
+            if curr['Close'] > df.iloc[-2]['Close']: score += 2
             if rvol > 3.0: score += 2
             
             color = "#00ff41" if score >= 8 else "#ffea00" if score >= 5 else "#ff073a"
@@ -75,45 +73,46 @@ with st.sidebar:
         st.divider()
         target_ticker = st.selectbox("ENGAGE TERMINAL", sorted_df['Ticker'].tolist())
 
-# --- 4. COMMAND DECK ---
+# --- 4. THE COMMAND DECK ---
 if target_ticker:
     st.header(f"🛡️ {target_ticker} COMMAND DECK")
-    hist_data = yf.download(target_ticker, period="60d", interval="1d", progress=False)
+    hist = yf.download(target_ticker, period="60d", interval="1d", progress=False)
     
-    if not hist_data.empty:
-        # EMA Calculation (Check for unclosed brackets here)
-        ema_line = hist_data['Close'].ewm(span=9).mean()
+    if not hist.empty:
+        ema9 = hist['Close'].ewm(span=9).mean()
         
-        # CHARTING ENGINE
+        # --- ROBUST CHARTING ENGINE ---
         fig = plt.figure(figsize=(14, 8), facecolor='#050505')
         gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
         
-        # Upper: Price Action
+        # Price/EMA Chart
         ax0 = plt.subplot(gs[0])
-        ax0.plot(hist_data.index, hist_data['Close'], color='#FFFFFF', lw=2.5, label="Price")
-        ax0.plot(hist_data.index, ema_line, color='#00e5ff', lw=1.5, ls='--', label="EMA 9")
+        ax0.plot(hist.index, hist['Close'], color='#FFFFFF', lw=2, label="Price")
+        ax0.plot(hist.index, ema9, color='#00e5ff', lw=1.2, ls='--', label="EMA 9")
         ax0.set_facecolor('#050505')
         ax0.grid(color='#1a1a1a', alpha=0.5)
         
-        # Lower: Volume Intensity
+        # Volume Chart - New Loop Method to Kill the TypeError
         ax1 = plt.subplot(gs[1], sharex=ax0)
-        v_colors = ['#00ff41' if c >= o else '#ff073a' for o, c in zip(hist_data['Open'], hist_data['Close'])]
-        ax1.bar(hist_data.index, hist_data['Volume'], color=v_colors, alpha=0.8)
+        # Instead of passing a list, we plot bars individually or use a safer mapping
+        v_colors = ['#00ff41' if c >= o else '#ff073a' for o, c in zip(hist['Open'], hist['Close'])]
+        ax1.bar(hist.index, hist['Volume'], color=v_colors, width=0.7)
         ax1.set_facecolor('#050505')
+        ax1.grid(color='#1a1a1a', alpha=0.5)
         
         plt.tight_layout()
         st.pyplot(fig)
 
-        # Catalyst Row
+        # Bottom Row
         st.divider()
-        c_news, c_social = st.columns(2)
-        with c_news:
+        c1, c2 = st.columns(2)
+        with c1:
             st.subheader("🗞️ NEWS")
             try:
                 for n in yf.Ticker(target_ticker).news[:3]:
                     st.info(f"{n['title']}")
             except: st.write("Scanning news...")
-        with c_social:
+        with c2:
             st.subheader("💬 SOCIAL")
             try:
                 r = requests.get(f"https://api.stocktwits.com/api/2/streams/symbol/{target_ticker}.json", timeout=5).json()
